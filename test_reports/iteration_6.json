@@ -1,0 +1,31 @@
+{
+  "summary": "Reteste concluído: demo-data agora cria quatro lançamentos no mês atual, o filtro Este mês calcula os indicadores corretamente e as telas principais não têm overflow em 390x844.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_finance_api.py",
+    "/app/test_reports/pytest/pytest_results_iteration_6.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/test_reports/iteration_6.json",
+    "/app/test_reports/pytest/pytest_results_iteration_6.xml"
+  ],
+  "success_rate": {
+    "backend": "100% (7/7)",
+    "frontend": "100% (demo/filter/metrics/mobile overflow passed)"
+  },
+  "seed_data_creation": "Testes criaram controles, tags, lançamentos e sessão demo TEST_; a rotina de demo foi removida antes do fluxo visual. Nenhuma API foi mockada.",
+  "retest_needed": false,
+  "should_call_test_agent_after_fix": false,
+  "context_for_next_testing_agent": "Backend regression and mobile dashboard, /tags, and /membros flows passed. Demo metrics were R$ 5.200,00 income, R$ 1.659,30 expense, R$ 3.540,70 balance, four rows.",
+  "rca of the issue": "A correção anterior substituiu datas demo fixas por datas relativas a datetime.now(timezone.utc); o frontend então reconhece corretamente os registros no filtro mensal."
+}

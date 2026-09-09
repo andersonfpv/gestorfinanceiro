@@ -1,0 +1,41 @@
+{
+  "summary": "Reteste final concluído: backend passou 7/7, login demo e telas móveis funcionaram sem overflow em 390px, incluindo criação de tag e convite. Foi encontrado um problema no filtro Este mês após adicionar dados demonstrativos.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Dashboard > Adicionar demonstração > filtro Este mês",
+        "issue": "Os quatro lançamentos demo são gravados com datas fixas de 05/06/2025 a 08/06/2025. Em setembro de 2026, o filtro Este mês retorna 0 lançamentos e indicadores zerados.",
+        "affected_selectors": ["[data-testid=add-demo-button]", "[data-testid=filter-period]", "[data-testid=transaction-count]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_finance_api.py",
+    "/app/test_reports/pytest/pytest_results_iteration_5.xml"
+  ],
+  "action_items": [
+    "Gerar as datas dos lançamentos demonstrativos relativas ao mês atual, ou ajustar a expectativa/UX do filtro Este mês, para que a demonstração mostre indicadores imediatamente."
+  ],
+  "critical_code_review_comments": [
+    "demo_data usa datas hardcoded de 2025, tornando a principal visualização mensal vazia conforme o tempo passa."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_5.json",
+    "/app/test_reports/pytest/pytest_results_iteration_5.xml"
+  ],
+  "success_rate": {
+    "backend": "100% (7/7)",
+    "frontend": "90% (fluxos e layout mobile passaram; filtro mensal com demo falhou)"
+  },
+  "seed_data_creation": "Os testes criaram controles, tags, lançamentos e dados demo TEST_ persistentes; o teste de permissões removeu o usuário/sessão/viewer temporários. Dados demo adicionados no último teste permanecem no controle usado pela sessão.",
+  "retest_needed": true,
+  "should_call_test_agent_after_fix": true,
+  "context_for_next_testing_agent": "Overflow de dashboard, Tags e Pessoas foi corrigido e confirmado em 390x844. Backend completo passou. Revalidar o filtro Este mês depois de corrigir as datas dos dados demo.",
+  "rca of the issue": "O backend grava amostras fixas em junho de 2025 (/api/controls/{cid}/demo-data), enquanto o frontend compara mês e ano com a data atual. A lógica do filtro está consistente, mas os dados demo ficam obsoletos e deixam o dashboard mensal vazio."
+}

@@ -1,0 +1,53 @@
+{
+  "typography": {
+    "headings": "Plus Jakarta Sans, sans-serif",
+    "body": "Inter, sans-serif",
+    "mono": "JetBrains Mono, monospace"
+  },
+  "colors": {
+    "archetype": "ORGANIC & EARTHY / FINANCIAL PRO",
+    "primary": "#059669",
+    "primary_hover": "#047857",
+    "secondary": "#10B981",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "text": "#0F172A",
+    "muted": "#64748B",
+    "border": "#E2E8F0",
+    "success": "#10B981",
+    "danger": "#EF4444",
+    "warning": "#F59E0B"
+  },
+  "visual_enhancers": {
+    "border_radius": "rounded-xl",
+    "shadows": "shadow-sm hover:shadow-md transition-shadow duration-200",
+    "glassmorphism": "backdrop-blur-xl bg-white/80 border border-slate-200/50"
+  },
+  "component_name": "Meu Controle Financeiro App",
+  "grids": {
+    "dashboard_grid": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6",
+    "bento_grid": "grid grid-cols-1 md:grid-cols-12 gap-6"
+  },
+  "layouts": {
+    "desktop": "Sidebar navigation with fluid main content area",
+    "mobile": "Mobile-first responsive layout with bottom navigation or collapsible drawer"
+  },
+  "motion": {
+    "transition": "transition-all duration-200 ease-in-out",
+    "hover_lift": "hover:-translate-y-0.5"
+  },
+  "accessibility": {
+    "contrast": "WCAG AA compliant, APCA checked",
+    "data_testids": "Mandatory on all interactive and key informational elements"
+  },
+  "media": {},
+  "3d_libraries": {},
+  "image_urls": {},
+  "instructions_to_main_agent": "Ensure all interactive elements have data-testid attributes, follow Portuguese (Brazil) locale, R$ currency format, dd/mm/aaaa date format, and maintain strict data isolation per financial control.",
+  "universal_guidelines_for_main_agent": [
+    "Never use full transparent background without blur/scrim",
+    "Add data-testid attributes to all interactive and key informational elements",
+    "Use proper R$ formatting and dd/mm/aaaa dates",
+    "Ensure robust backend permission enforcement"
+  ]
+}

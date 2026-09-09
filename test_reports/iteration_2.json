@@ -1,0 +1,27 @@
+{
+  "summary": "Testes integrados públicos concluídos: autenticação demo, controles, tags, lançamentos, permissões básicas, dados demo e layout mobile foram exercitados. APIs passaram; a UI tem filtro mensal inoperante e rotas de Tags/Pessoas sem telas próprias.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/controls/{cid}/transactions", "issue": "Aceita e persiste mais de duas casas decimais (1234.567); confirmar/implementar precisão monetária em centavos."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Filtro de período no dashboard", "issue": "Selecionar 'Este mês' mantém exatamente os mesmos indicadores e lançamentos de 'Todo o período'; dados de demonstração de junho/2025 continuam visíveis no mês atual.", "affected_selectors": ["[data-testid=filter-period]", "[data-testid=transaction-count]", "[data-testid=income-total]"]},
+      {"flow": "Navegação Tags e Pessoas", "issue": "As URLs /tags e /membros mudam, mas o componente continua mostrando o dashboard e não oferece cadastro/gestão nessas seções.", "affected_selectors": ["[data-testid=nav-tags]", "[data-testid=nav-members]", "[data-testid=dashboard-description]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_finance_api.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": ["Aplicar a lógica de período 'month' comparando datas dd/mm/aaaa com o mês/ano atual antes de calcular indicadores, gráficos e lista.", "Renderizar telas reais para /tags e /membros, incluindo criação/gestão, ou remover navegações não implementadas.", "Definir precisão monetária consistente (idealmente quantizar a 2 casas) no endpoint de transações e na UI."],
+  "critical_code_review_comments": ["AppRouter sempre renderiza Page/Dashboard independentemente de location.pathname; os botões de navegação prometem fluxos inexistentes.", "O estado filters.period é armazenado, mas não participa do predicado de filtered, deixando o filtro mensal funcionalmente morto.", "A criação de controle usa prompt() e não disponibiliza input/data-testid dedicado; tags, membros e exclusão de lançamento não têm fluxo correspondente na UI apesar dos endpoints existirem."],
+  "updated_files": ["/app/backend/tests/test_finance_api.py", "/app/test_reports/iteration_2.json"],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "80% (fluxo principal e mobile passaram; 2 integrações falharam)"},
+  "seed_data_creation": "Criados controles e tags/lançamentos TEST_ via testes públicos; adicionados e removidos 4 lançamentos demo. Dados de teste permanecem no banco, pois não existe endpoint de exclusão de controle.",
+  "retest_needed": true,
+  "should_call_test_agent_after_fix": true,
+  "context_for_next_testing_agent": "Sessão demo funciona sem senha. Revalidar filtro mensal após correção e confirmar telas /tags e /membros; repetir mobile 390x844 e limpeza dos dados TEST_. OAuth real não foi completado, apenas revisão estrutural do callback.",
+  "rca of the issue": "Em App.js, Dashboard filtra apenas type/tag/user; filters.period é alterado pelo select, mas nunca usado. AppRouter não possui roteamento por pathname e sempre entrega o mesmo Page; por isso /tags e /membros exibem o dashboard. O backend persiste amount como Decimal convertido diretamente para string, sem quantização monetária."
+}

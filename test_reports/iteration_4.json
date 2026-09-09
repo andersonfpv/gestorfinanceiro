@@ -1,0 +1,54 @@
+{
+  "summary": "Regressão final concluída: autenticação demo, sessão protegida, dashboard, demonstração, filtro mensal, tags, convite e permissões passaram. Dashboard não tem overflow em 390px, mas Tags e Pessoas ainda excedem o viewport.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "TagsPage mobile",
+        "issue": "Em 390x844, document.scrollWidth fica em 563px (clientWidth 390px), cortando o formulário de criação.",
+        "selector": ".inline-form, [data-testid=tag-save-button]",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "MembersPage mobile",
+        "issue": "Em 390x844, document.scrollWidth fica em 532px (clientWidth 390px), cortando o formulário de convite.",
+        "selector": ".inline-form, [data-testid=member-invite-button]",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Tags e Pessoas em 390x844",
+        "issues": ["Formulários responsivos ainda preservam largura mínima dos campos/colunas e geram overflow horizontal."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_finance_api.py",
+    "/app/test_reports/pytest/pytest_results_iteration_4_final.xml"
+  ],
+  "action_items": [
+    "Ajustar .inline-form e seus campos/botões no breakpoint mobile para que /tags e /membros mantenham scrollWidth igual a clientWidth.",
+    "Reexecutar a validação mobile após o ajuste, incluindo criação de tag e convite."
+  ],
+  "critical_code_review_comments": [
+    "A correção anterior resolveu toolbar/filtros do dashboard, mas a regra mobile de .inline-form ainda não elimina min-width/conteúdo mínimo; duas telas protegidas continuam com controles inacessíveis por overflow."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_finance_api.py",
+    "/app/test_reports/iteration_4.json"
+  ],
+  "success_rate": {
+    "backend": "100% (7/7)",
+    "frontend": "80% (fluxos funcionais; 2 rotas mobile com overflow)"
+  },
+  "seed_data_creation": "Os testes criaram controles, tags e lançamentos TEST_ persistentes; o teste de permissões criou e removeu usuário/sessão/viewer temporários. Não há endpoint de exclusão de controle para limpar os controles.",
+  "retest_needed": true,
+  "should_call_test_agent_after_fix": true,
+  "context_for_next_testing_agent": "Demo login e dashboard mobile (390/390) passaram. Tags e Pessoas renderizam, criam tag e exibem erro de convite, mas mediram 563/390 e 532/390 de scrollWidth. Backend de isolamento, owner/viewer, precisão monetária e demo passou.",
+  "rca of the issue": "No breakpoint mobile, .inline-form usa grid-template-columns:1fr 1fr e os elementos mantêm largura mínima baseada no conteúdo; em Tags há quatro controles e em Pessoas há campos/botão que excedem os 354px úteis do conteúdo. O overflow é do layout dessas páginas, não da API."
+}

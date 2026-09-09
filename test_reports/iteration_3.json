@@ -1,0 +1,48 @@
+{
+  "summary": "Reteste integrado concluído: APIs e precisão monetária passaram; filtro mensal, demonstração, Tags e Pessoas funcionam. O dashboard mobile ainda possui overflow horizontal.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Dashboard mobile",
+        "issue": "Em 390x844, a página fica mais larga que o viewport (scrollWidth 447px vs clientWidth 390px), cortando o terceiro botão da toolbar e parte dos filtros.",
+        "selector": ".toolbar-actions, .filters",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Dashboard mobile 390x844",
+        "issues": ["Ações da toolbar não se adaptam à largura disponível; há conteúdo visivelmente cortado à direita."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_finance_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Corrigir o layout responsivo de .toolbar-actions e/ou .filters para que o document.scrollWidth não exceda 390px; revalidar também /tags e /membros em mobile."
+  ],
+  "critical_code_review_comments": [
+    "A media query permite overflow-x apenas no bloco .filters, mas a toolbar mantém três botões em uma única linha; o overflow do documento deixa ações essenciais inacessíveis em 390px.",
+    "As telas Tags e Pessoas passam no desktop, porém .inline-form e .tag-grid não têm regras mobile específicas e devem ser incluídas na próxima verificação responsiva."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_finance_api.py",
+    "/app/test_reports/iteration_3.json"
+  ],
+  "success_rate": {
+    "backend": "100% (6/6)",
+    "frontend": "83% (fluxos funcionais; mobile overflow falhou)"
+  },
+  "seed_data_creation": "Criados controles, tag de UI e quatro lançamentos de demonstração durante os testes públicos; dados permanecem no banco porque não há endpoint de exclusão de controle.",
+  "retest_needed": true,
+  "should_call_test_agent_after_fix": true,
+  "context_for_next_testing_agent": "Demo login, adicionar/remover demonstração, filtro Este mês, /tags, criação de tag, /membros, convite e precisão 1234.567→1234.57 foram verificados. Revalidar overflow em 390x844 e testar /tags e /membros no mesmo viewport.",
+  "rca of the issue": "Em App.css, .toolbar-actions permanece display:flex e seus três botões recebem flex:1 sem permitir quebra; em viewport estreito o conteúdo mínimo dos botões excede a largura do .content. O bloco .filters também tem overflow próprio, mas não impede que o layout combinado alcance 447px."
+}
