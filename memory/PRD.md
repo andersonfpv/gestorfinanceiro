@@ -30,12 +30,13 @@ Aplicativo web responsivo em português do Brasil para registrar, acompanhar e c
 - Gestão de tags em `/tags` e pessoas/permissões em `/membros`.
 - Dados demo dinâmicos do mês atual e remoção por botão.
 - Layout responsivo validado em 390x844, sem overflow horizontal.
+- Lista completa de lançamentos em `/lancamentos` com busca por descrição, ordenação por data/valor, edição em modal e exclusão com confirmação.
 - Testes integrados finais: backend 7/7 e frontend/mobile aprovados.
 
 ## Backlog priorizado
 - P0: concluir e validar recuperação de senha nativa da autenticação gerenciada, conforme disponibilidade do provedor.
 - P1: edição de lançamentos e tags, exclusão de tags não utilizadas e paginação da lista completa.
-- P1: tela dedicada de lançamentos com busca, ordenação e cards mobile.
+- P1: tela dedicada de lançamentos com paginação/carregamento eficiente para grandes volumes.
 - P1: edição de membros e remoção de acesso pelo proprietário.
 - P2: exportação CSV/PDF, metas financeiras e relatórios comparativos por mês.
 - P2: auditoria de alterações e notificações de convites.

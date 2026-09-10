@@ -85,6 +85,26 @@ def test_delete_transaction_requires_owner(client, control):
     assert response.status_code == 200
 
 
+def test_update_transaction_preserves_session_and_precision(client, control):
+    """Verify PUT updates the record, keeps the authenticated session, and quantizes cents."""
+    cid = control["control_id"]
+    tag = client.post(f"{BASE_URL}/api/controls/{cid}/tags", json={"name": "TEST update"}, timeout=20).json()
+    tx = client.post(f"{BASE_URL}/api/controls/{cid}/transactions", json={
+        "type": "expense", "amount": "10.00", "date": "03/06/2025",
+        "description": "TEST before update", "tag_id": tag["tag_id"]
+    }, timeout=20).json()
+    updated = client.put(f"{BASE_URL}/api/controls/{cid}/transactions/{tx['transaction_id']}", json={
+        "type": "income", "amount": "123.456", "date": "04/06/2025",
+        "description": "TEST after update", "tag_id": tag["tag_id"], "note": "updated"
+    }, timeout=20)
+    assert updated.status_code == 200
+    assert updated.json()["amount"] == "123.46"
+    assert updated.json()["description"] == "TEST after update"
+    assert client.get(f"{BASE_URL}/api/auth/me", timeout=20).status_code == 200
+    persisted = client.get(f"{BASE_URL}/api/controls/{cid}/transactions", timeout=20).json()
+    assert next(item for item in persisted if item["transaction_id"] == tx["transaction_id"])["amount"] == "123.46"
+
+
 def test_viewer_permissions_and_control_isolation(client, control):
     """Verify control membership isolation and viewer read-only permissions."""
     cid = control["control_id"]

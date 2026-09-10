@@ -115,6 +115,25 @@ async def create_transaction(cid: str, body: TransactionIn, request: Request):
     if not await db.tags.find_one({"tag_id": body.tag_id, "control_id": cid}, {"_id": 0}): raise HTTPException(422, "Tag inválida")
     doc = {"transaction_id": uid("tx"), "control_id": cid, "type": body.type, "amount": str(amount), "date": body.date, "description": body.description, "tag_id": body.tag_id, "note": body.note, "user_id": user["user_id"], "user_name": user["name"], "created_at": now()}; await db.transactions.insert_one(doc); return clean(doc)
 
+@api.put("/controls/{cid}/transactions/{tid}")
+async def update_transaction(cid: str, tid: str, body: TransactionIn, request: Request):
+    user = await current_user(request)
+    await access(user["user_id"], cid, ["owner", "editor"])
+    try:
+        amount = Decimal(body.amount.replace(",", ".")).quantize(Decimal("0.01"))
+    except InvalidOperation:
+        raise HTTPException(422, "Valor inválido")
+    if amount <= 0 or body.type not in ["income", "expense"]:
+        raise HTTPException(422, "Confira tipo e valor")
+    if not await db.tags.find_one({"tag_id": body.tag_id, "control_id": cid}, {"_id": 0}):
+        raise HTTPException(422, "Tag inválida")
+    changes = {**body.model_dump(), "amount": str(amount)}
+    result = await db.transactions.update_one({"transaction_id": tid, "control_id": cid}, {"$set": changes})
+    if not result.matched_count:
+        raise HTTPException(404, "Lançamento não encontrado")
+    updated = await db.transactions.find_one({"transaction_id": tid, "control_id": cid}, {"_id": 0})
+    return updated
+
 @api.delete("/controls/{cid}/transactions/{tid}")
 async def delete_transaction(cid: str, tid: str, request: Request):
     user = await current_user(request); await access(user["user_id"], cid, ["owner"]); await db.transactions.delete_one({"transaction_id": tid, "control_id": cid}); return {"ok": True}
