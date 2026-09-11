@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Optional
-import os, uuid, requests
+import asyncio, os, uuid, requests
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -36,7 +36,11 @@ async def current_user(request: Request):
     session = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
     if not session: raise HTTPException(401, "Sessão expirada")
     expiry = session.get("expires_at", "")
-    if isinstance(expiry, str) and datetime.fromisoformat(expiry) < datetime.now(timezone.utc): raise HTTPException(401, "Sessão expirada")
+    if isinstance(expiry, str):
+        expiry = datetime.fromisoformat(expiry)
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    if expiry < datetime.now(timezone.utc): raise HTTPException(401, "Sessão expirada")
     user = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
     if not user: raise HTTPException(401, "Usuário não encontrado")
     return user
@@ -51,7 +55,10 @@ async def me(request: Request): return await current_user(request)
 
 @api.post("/auth/session")
 async def auth_session(body: SessionRequest, response: Response):
-    r = requests.get("https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data", headers={"X-Session-ID": body.session_id}, timeout=15)
+    try:
+        r = await asyncio.to_thread(requests.get, "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data", headers={"X-Session-ID": body.session_id}, timeout=15)
+    except requests.RequestException as exc:
+        raise HTTPException(502, "O serviço de autenticação está temporariamente indisponível") from exc
     if r.status_code != 200: raise HTTPException(401, "Não foi possível validar o acesso")
     data = r.json(); user = {"user_id": f"user_{data['id']}", "email": data["email"], "name": data.get("name") or data["email"], "picture": data.get("picture", ""), "created_at": now()}
     await db.users.update_one({"email": user["email"]}, {"$set": user}, upsert=True)
@@ -70,7 +77,7 @@ async def demo_auth(response: Response):
 
 @api.post("/auth/logout")
 async def logout(request: Request, response: Response):
-    token = request.cookies.get("session_token")
+    token = request.cookies.get("session_token") or request.headers.get("Authorization", "").replace("Bearer ", "")
     if token: await db.user_sessions.delete_many({"session_token": token})
     response.delete_cookie("session_token", path="/"); return {"ok": True}
 
@@ -151,6 +158,7 @@ async def delete_demo(cid: str, request: Request):
     user = await current_user(request); await access(user["user_id"], cid, ["owner"]); await db.transactions.delete_many({"control_id": cid, "note": "Dado de demonstração"}); return {"ok": True}
 
 app.include_router(api)
-app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","), allow_methods=["*"], allow_headers=["*"])
+configured_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
+app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=[] if configured_origins == ["*"] else configured_origins, allow_origin_regex=r"https?://.*" if configured_origins == ["*"] else None, allow_methods=["*"], allow_headers=["*"])
 @app.on_event("shutdown")
 async def shutdown(): client.close()

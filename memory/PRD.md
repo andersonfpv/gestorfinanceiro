@@ -31,6 +31,7 @@ Aplicativo web responsivo em português do Brasil para registrar, acompanhar e c
 - Dados demo dinâmicos do mês atual e remoção por botão.
 - Layout responsivo validado em 390x844, sem overflow horizontal.
 - Lista completa de lançamentos em `/lancamentos` com busca por descrição, ordenação por data/valor, edição em modal e exclusão com confirmação.
+- Integração Google gerenciada da Emergent reforçada em 10/09/2026: redirect dinâmico, callback protegido contra reprocessamento, troca server-side, cookie seguro, erros visíveis e logout por cookie ou Bearer.
 - Testes integrados finais: backend 7/7 e frontend/mobile aprovados.
 
 ## Backlog priorizado

@@ -38,6 +38,35 @@ def test_auth_me_returns_demo_without_mongo_id(client):
     assert "_id" not in data
 
 
+def test_bearer_logout_invalidates_same_token():
+    """Verify Bearer-only sessions are accepted, then invalidated by logout."""
+    session = requests.Session()
+    login = session.post(f"{BASE_URL}/api/auth/demo", timeout=20)
+    assert login.status_code == 200
+    token = session.cookies.get("session_token")
+    session.cookies.clear()
+    session.headers.update({"Authorization": f"Bearer {token}"})
+    assert session.get(f"{BASE_URL}/api/auth/me", timeout=20).status_code == 200
+    assert session.post(f"{BASE_URL}/api/auth/logout", timeout=20).status_code == 200
+    assert session.get(f"{BASE_URL}/api/auth/me", timeout=20).status_code == 401
+
+
+def test_cookie_logout_clears_session():
+    """Verify cookie sessions are invalidated and the cookie is cleared on logout."""
+    session = requests.Session()
+    assert session.post(f"{BASE_URL}/api/auth/demo", timeout=20).status_code == 200
+    assert session.get(f"{BASE_URL}/api/auth/me", timeout=20).status_code == 200
+    assert session.post(f"{BASE_URL}/api/auth/logout", timeout=20).status_code == 200
+    assert session.get(f"{BASE_URL}/api/auth/me", timeout=20).status_code == 401
+
+
+def test_oauth_invalid_session_returns_auth_error():
+    """Verify an invalid managed OAuth session fails cleanly rather than crashing."""
+    response = requests.post(f"{BASE_URL}/api/auth/session", json={"session_id": "TEST_invalid_oauth_session"}, timeout=30)
+    assert response.status_code == 401
+    assert response.json().get("detail")
+
+
 def test_control_and_membership_persist(client, control):
     response = client.get(f"{BASE_URL}/api/controls", timeout=20)
     assert response.status_code == 200

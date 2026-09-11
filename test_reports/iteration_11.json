@@ -1,0 +1,35 @@
+{
+  "summary": "Completed auth and finance regression testing. Backend 11/11 passed; demo protected flow, Bearer/cookie logout invalidation, OAuth invalid-session handling, Google redirect, mobile sidebar/logout, and demo data UI flow passed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_finance_api.py",
+    "/app/test_reports/pytest/pytest_results_iteration_11.xml"
+  ],
+  "action_items": [
+    "Run the pytest suite with REACT_APP_BACKEND_URL and backend MONGO_URL/DB_NAME loaded; collection otherwise fails before tests execute."
+  ],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_finance_api.py",
+    "/app/test_reports/iteration_11.json",
+    "/app/test_reports/pytest/pytest_results_iteration_11.xml"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11)",
+    "frontend": "100% (demo login/data, mobile drawer/logout, OAuth callback failure, dynamic Google redirect)"
+  },
+  "seed_data_creation": "Demo sessions and TEST_-prefixed finance records were created during regression tests; viewer test records were cleaned up. No APIs were mocked.",
+  "retest_needed": false,
+  "should_call_test_agent_after_fix": false,
+  "context_for_next_testing_agent": "Auth and finance flows are covered. Google provider completion with a real Google account was not exercised; managed OAuth redirect and invalid callback handling were verified. Logged-out /api/auth/me 401 responses are expected and are not application console failures.",
+  "test_credentials": "Demo access only: demo@meucontrole.test via the Entrar na demonstração button; no password.",
+  "rca of the issue": "Iteration 10's mobile hamburger issue is resolved: Shell now tracks menuOpen, toggles mobile-open, and exposes logout. Bearer logout now invalidates the session token and cookie logout also clears/invalidate the session; both were verified against the public API."
+}
