@@ -1,4 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -7,7 +8,8 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Optional
-import asyncio, os, uuid, requests
+import asyncio, json, os, uuid, requests
+from emergentintegrations.llm.chat import LlmChat, TextDelta, StreamDone, UserMessage
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -156,6 +158,45 @@ async def demo_data(cid: str, request: Request):
 @api.delete("/controls/{cid}/demo-data")
 async def delete_demo(cid: str, request: Request):
     user = await current_user(request); await access(user["user_id"], cid, ["owner"]); await db.transactions.delete_many({"control_id": cid, "note": "Dado de demonstração"}); return {"ok": True}
+
+@api.get("/controls/{cid}/ai/insights")
+async def ai_insights(cid: str, request: Request):
+    user = await current_user(request)
+    await access(user["user_id"], cid)
+    transactions = await db.transactions.find({"control_id": cid}, {"_id": 0, "type": 1, "amount": 1, "tag_id": 1, "date": 1}).to_list(2000)
+    tags = await db.tags.find({"control_id": cid}, {"_id": 0, "tag_id": 1, "name": 1}).to_list(200)
+    tag_names = {tag["tag_id"]: tag["name"] for tag in tags}
+    summary = {"entries_total": "0.00", "expenses_total": "0.00", "transaction_count": len(transactions), "expenses_by_tag": {}}
+    entries = Decimal("0")
+    expenses = Decimal("0")
+    by_tag = {}
+    for transaction in transactions:
+        amount = Decimal(transaction["amount"])
+        if transaction["type"] == "income":
+            entries += amount
+        else:
+            expenses += amount
+            name = tag_names.get(transaction.get("tag_id"), "Outros")
+            by_tag[name] = by_tag.get(name, Decimal("0")) + amount
+    summary["entries_total"] = str(entries.quantize(Decimal("0.01")))
+    summary["expenses_total"] = str(expenses.quantize(Decimal("0.01")))
+    summary["expenses_by_tag"] = {name: str(amount.quantize(Decimal("0.01"))) for name, amount in by_tag.items()}
+    prompt = json.dumps(summary, ensure_ascii=False)
+    async def stream():
+        chunks = []
+        try:
+            chat = LlmChat(api_key=os.environ["EMERGENT_LLM_KEY"], session_id=f"finance-insight-{cid}-{uuid.uuid4().hex}", system_message="Você é um orientador financeiro claro e responsável. Analise somente os totais agregados fornecidos. Não invente dados, não dê recomendações de investimento e responda em português do Brasil com três observações práticas e curtas.").with_model("gemini", "gemini-3.8-flash")
+            async for event in chat.stream_message(UserMessage(text=f"Gere insights sobre este resumo financeiro agregado, sem mencionar dados pessoais: {prompt}")):
+                if isinstance(event, TextDelta):
+                    chunks.append(event.content)
+                    yield f"data: {json.dumps({'text': event.content}, ensure_ascii=False)}\n\n"
+                elif isinstance(event, StreamDone):
+                    break
+            await db.ai_insights.insert_one({"insight_id": uid("insight"), "control_id": cid, "user_id": user["user_id"], "summary": summary, "content": "".join(chunks), "created_at": now()})
+            yield "data: {\"done\":true}\n\n"
+        except Exception:
+            yield f"data: {json.dumps({'error': 'Não foi possível gerar os insights agora.'}, ensure_ascii=False)}\n\n"
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 app.include_router(api)
 configured_origins = os.environ.get("CORS_ORIGINS", "*").split(",")

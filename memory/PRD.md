@@ -32,6 +32,7 @@ Aplicativo web responsivo em português do Brasil para registrar, acompanhar e c
 - Layout responsivo validado em 390x844, sem overflow horizontal.
 - Lista completa de lançamentos em `/lancamentos` com busca por descrição, ordenação por data/valor, edição em modal e exclusão com confirmação.
 - Integração Google gerenciada da Emergent reforçada em 10/09/2026: redirect dinâmico, callback protegido contra reprocessamento, troca server-side, cookie seguro, erros visíveis e logout por cookie ou Bearer.
+- Insights com Gemini adicionados em 14/09/2026: streaming SSE server-side com `gemini-3.8-flash`, usando somente totais agregados e despesas por tag; resultados são armazenados em `ai_insights`.
 - Testes integrados finais: backend 7/7 e frontend/mobile aprovados.
 
 ## Backlog priorizado
@@ -39,6 +40,7 @@ Aplicativo web responsivo em português do Brasil para registrar, acompanhar e c
 - P1: edição de lançamentos e tags, exclusão de tags não utilizadas e paginação da lista completa.
 - P1: tela dedicada de lançamentos com paginação/carregamento eficiente para grandes volumes.
 - P1: edição de membros e remoção de acesso pelo proprietário.
+- P1: histórico de insights Gemini, comparação de períodos e opção de solicitar análises agregadas específicas.
 - P2: exportação CSV/PDF, metas financeiras e relatórios comparativos por mês.
 - P2: auditoria de alterações e notificações de convites.
 
