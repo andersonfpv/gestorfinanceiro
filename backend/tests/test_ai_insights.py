@@ -13,7 +13,9 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL").rstrip("/")
 @pytest.fixture
 def session_and_control():
     session = requests.Session()
-    assert session.post(f"{BASE_URL}/api/auth/demo", timeout=20).status_code == 200
+    login = session.post(f"{BASE_URL}/api/auth/demo", timeout=20)
+    assert login.status_code == 200
+    session.headers.update({"Authorization": f"Bearer {session.cookies.get('session_token')}"})
     control = session.post(
         f"{BASE_URL}/api/controls",
         json={"name": f"TEST_AI_{uuid.uuid4().hex[:8]}"},
@@ -34,10 +36,11 @@ def session_and_control():
         timeout=20,
     ).raise_for_status()
     yield session, control["control_id"]
+    session.post(f"{BASE_URL}/api/auth/logout", timeout=20)
 
 
 def test_ai_insights_requires_authentication():
-    response = requests.get(
+    response = requests.post(
         f"{BASE_URL}/api/controls/control_missing/ai/insights", timeout=20
     )
     assert response.status_code == 401
@@ -45,16 +48,21 @@ def test_ai_insights_requires_authentication():
 
 def test_ai_insights_requires_control_membership():
     session = requests.Session()
-    assert session.post(f"{BASE_URL}/api/auth/demo", timeout=20).status_code == 200
-    response = session.get(
-        f"{BASE_URL}/api/controls/control_not_owned/ai/insights", timeout=20
-    )
-    assert response.status_code == 403
+    login = session.post(f"{BASE_URL}/api/auth/demo", timeout=20)
+    assert login.status_code == 200
+    session.headers.update({"Authorization": f"Bearer {session.cookies.get('session_token')}"})
+    try:
+        response = session.post(
+            f"{BASE_URL}/api/controls/control_not_owned/ai/insights", timeout=20
+        )
+        assert response.status_code == 403
+    finally:
+        session.post(f"{BASE_URL}/api/auth/logout", timeout=20)
 
 
 def test_ai_insights_streams_done_and_persists_aggregates(session_and_control):
     session, control_id = session_and_control
-    response = session.get(
+    response = session.post(
         f"{BASE_URL}/api/controls/{control_id}/ai/insights", stream=True, timeout=90
     )
     assert response.status_code == 200
