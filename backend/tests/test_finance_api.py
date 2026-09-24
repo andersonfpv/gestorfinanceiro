@@ -42,6 +42,13 @@ def registered_account():
     session = requests.Session()
     session.headers.update({"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
     yield {"user_id": user_id, "email": email, "session": session, "db": db}
+    owned_ids = [item["control_id"] for item in db.controls.find({"owner_id": user_id}, {"control_id": 1})]
+    if owned_ids:
+        db.transactions.delete_many({"control_id": {"$in": owned_ids}})
+        db.tags.delete_many({"control_id": {"$in": owned_ids}})
+        db.ai_insights.delete_many({"control_id": {"$in": owned_ids}})
+        db.members.delete_many({"control_id": {"$in": owned_ids}})
+        db.controls.delete_many({"control_id": {"$in": owned_ids}})
     db.members.delete_many({"user_id": user_id})
     db.user_sessions.delete_many({"user_id": user_id})
     db.users.delete_many({"user_id": user_id})
@@ -385,6 +392,105 @@ def test_delete_control_requires_removing_other_members_first(registered_account
     assert owner.get(f"{BASE_URL}/api/controls/{cid}/transactions", timeout=20).status_code == 403
     registered_account["db"].users.delete_many({"user_id": invited_user_id})
 
+
+def test_account_deletion_transfers_owned_shared_controls_and_preserves_shared_data(registered_account):
+    owner = registered_account["session"]
+    db = registered_account["db"]
+    user_id = registered_account["user_id"]
+    email = registered_account["email"]
+    user_control = owner.post(
+        f"{BASE_URL}/api/controls", json={"name": "TEST account deletion"}, timeout=20
+    ).json()
+    owned_id = user_control["control_id"]
+    tag = owner.post(
+        f"{BASE_URL}/api/controls/{owned_id}/tags", json={"name": "TEST account tag"}, timeout=20
+    ).json()
+    owned_tx = owner.post(
+        f"{BASE_URL}/api/controls/{owned_id}/transactions",
+        json={"type": "expense", "amount": "12.34", "date": "2026-09-01",
+              "description": "TEST owned data", "tag_id": tag["tag_id"]}, timeout=20,
+    ).json()
+    solo_control = owner.post(
+        f"{BASE_URL}/api/controls", json={"name": "TEST solo account data"}, timeout=20
+    ).json()
+    solo_id = solo_control["control_id"]
+    solo_tag = owner.post(
+        f"{BASE_URL}/api/controls/{solo_id}/tags", json={"name": "TEST solo account tag"}, timeout=20
+    ).json()
+    solo_tx = owner.post(
+        f"{BASE_URL}/api/controls/{solo_id}/transactions",
+        json={"type": "expense", "amount": "7.89", "date": "2026-09-02",
+              "description": "TEST solo record", "tag_id": solo_tag["tag_id"]}, timeout=20,
+    ).json()
+
+    external_owner = f"TEST_external_owner_{uuid.uuid4().hex[:8]}"
+    external_control = f"TEST_external_control_{uuid.uuid4().hex[:8]}"
+    external_tag = f"TEST_external_tag_{uuid.uuid4().hex[:8]}"
+    external_tx = f"TEST_external_tx_{uuid.uuid4().hex[:8]}"
+    blocking_member = None
+    try:
+        db.users.insert_one({"user_id": external_owner, "email": f"{external_owner}@example.com", "name": "TEST External Owner"})
+        db.controls.insert_one({"control_id": external_control, "owner_id": external_owner, "name": "TEST retained shared control"})
+        db.members.insert_many([
+            {"control_id": external_control, "user_id": external_owner, "email": f"{external_owner}@example.com", "role": "owner"},
+            {"control_id": external_control, "user_id": user_id, "email": email, "role": "viewer"},
+        ])
+        db.tags.insert_one({"tag_id": external_tag, "control_id": external_control, "name": "TEST shared tag"})
+        db.transactions.insert_one({
+            "transaction_id": external_tx, "control_id": external_control, "tag_id": external_tag,
+            "type": "expense", "amount": "45.00", "date": "2026-09-01", "description": "TEST shared record",
+            "user_id": user_id, "user_name": "TEST Owner",
+        })
+
+        # An incorrect confirmation is rejected without changing ownership or sessions.
+        mismatch = owner.delete(f"{BASE_URL}/api/auth/account", json={"email": "wrong@example.com"}, timeout=20)
+        assert mismatch.status_code == 422
+        assert db.users.find_one({"user_id": user_id})
+
+        # Shared ownership must be transferred explicitly before closing the account.
+        blocking_member = f"TEST_blocking_member_{uuid.uuid4().hex[:8]}"
+        db.users.insert_one({"user_id": blocking_member, "email": f"{blocking_member}@example.com", "name": "TEST New Owner"})
+        db.members.insert_one({"control_id": owned_id, "user_id": blocking_member, "role": "viewer"})
+        blocked = owner.delete(f"{BASE_URL}/api/auth/account", json={"email": email}, timeout=20)
+        assert blocked.status_code == 409
+        assert db.controls.find_one({"control_id": owned_id, "deleting": {"$exists": False}})
+        assert db.users.find_one({"user_id": user_id})
+
+        deleted = owner.delete(
+            f"{BASE_URL}/api/auth/account",
+            json={"email": email, "ownership_transfers": {owned_id: blocking_member}}, timeout=20,
+        )
+        assert deleted.status_code == 200
+        assert db.users.find_one({"user_id": user_id}) is None
+        assert db.user_sessions.find_one({"user_id": user_id}) is None
+        assert db.controls.find_one({"control_id": owned_id, "owner_id": blocking_member, "deleting": {"$ne": True}})
+        assert db.members.find_one({"control_id": owned_id, "user_id": blocking_member, "role": "owner"})
+        assert db.members.find_one({"control_id": owned_id, "user_id": user_id}) is None
+        transferred_tx = db.transactions.find_one({"transaction_id": owned_tx["transaction_id"]})
+        assert transferred_tx and "user_id" not in transferred_tx
+        assert transferred_tx["user_name"] == "Usuário removido"
+        assert db.tags.find_one({"tag_id": tag["tag_id"]})
+        assert db.controls.find_one({"control_id": solo_id}) is None
+        assert db.transactions.find_one({"transaction_id": solo_tx["transaction_id"]}) is None
+        assert db.tags.find_one({"tag_id": solo_tag["tag_id"]}) is None
+        assert db.controls.find_one({"control_id": external_control, "owner_id": external_owner})
+        assert db.members.find_one({"control_id": external_control, "user_id": user_id}) is None
+        retained = db.transactions.find_one({"transaction_id": external_tx})
+        assert retained
+        assert "user_id" not in retained
+        assert retained["user_name"] == "Usuário removido"
+
+    finally:
+        for control_id in (external_control, owned_id, solo_id):
+            db.transactions.delete_many({"control_id": control_id})
+            db.tags.delete_many({"control_id": control_id})
+            db.ai_insights.delete_many({"control_id": control_id})
+            db.members.delete_many({"control_id": control_id})
+            db.controls.delete_one({"control_id": control_id})
+        user_ids = [external_owner]
+        if blocking_member:
+            user_ids.append(blocking_member)
+        db.users.delete_many({"user_id": {"$in": user_ids}})
 
 def test_delete_transaction_requires_owner(client, control):
     cid = control["control_id"]

@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Literal, Optional
 from urllib.parse import urlsplit
-import asyncio, csv, io, json, os, re, uuid, requests
+import asyncio, csv, hashlib, io, json, os, re, uuid, requests
 from emergentintegrations.llm.chat import LlmChat, TextDelta, StreamDone, UserMessage
 
 ROOT_DIR = Path(__file__).parent
@@ -55,6 +55,9 @@ def clean(doc):
     return doc
 
 class SessionRequest(BaseModel): session_id: str
+class AccountDeleteIn(BaseModel):
+    email: EmailStr
+    ownership_transfers: dict[str, str] = Field(default_factory=dict)
 class ControlIn(BaseModel): name: str = Field(min_length=2, max_length=120); description: str = Field(default="", max_length=500)
 class MemberIn(BaseModel): email: EmailStr; role: Literal["viewer", "editor"] = "viewer"
 class TagIn(BaseModel): name: str = Field(min_length=1, max_length=80); color: str = "#059669"; kind: Literal["income", "expense", "both"] = "both"
@@ -210,6 +213,93 @@ async def logout(request: Request, response: Response):
             else:
                 await db.user_sessions.delete_many({"session_token": token})
     response.delete_cookie("session_token", path="/"); return {"ok": True}
+
+@api.delete("/auth/account")
+async def delete_account(body: AccountDeleteIn, request: Request, response: Response):
+    user = await current_user(request)
+    if user.get("is_demo"):
+        raise HTTPException(403, "Contas de demonstração são removidas ao sair")
+    if body.email.strip().casefold() != user.get("email", "").strip().casefold():
+        raise HTTPException(422, "O e-mail de confirmação não corresponde à conta")
+
+    user_id = user["user_id"]
+    owned = await db.controls.find(
+        {"owner_id": user_id}, {"_id": 0, "control_id": 1}
+    ).to_list(None)
+    owned_ids = [control["control_id"] for control in owned]
+    transferred_ids = []
+    if owned_ids:
+        await db.controls.update_many(
+            {"control_id": {"$in": owned_ids}, "owner_id": user_id},
+            {"$set": {"deleting": True}},
+        )
+        other_members = await db.members.find({
+            "control_id": {"$in": owned_ids}, "user_id": {"$ne": user_id},
+        }, {"_id": 0, "control_id": 1, "user_id": 1, "role": 1}).to_list(None)
+        shared_member_ids = {member["control_id"] for member in other_members}
+        transfers = body.ownership_transfers
+        missing_transfers = shared_member_ids - set(transfers)
+        invalid_transfer_controls = set(transfers) - shared_member_ids
+        if missing_transfers or invalid_transfer_controls:
+            await db.controls.update_many(
+                {"control_id": {"$in": owned_ids}, "owner_id": user_id},
+                {"$unset": {"deleting": ""}},
+            )
+            raise HTTPException(
+                409,
+                "Escolha um novo proprietário para cada controle compartilhado que você possui",
+            )
+
+        member_ids_by_control = {}
+        for member in other_members:
+            member_ids_by_control.setdefault(member["control_id"], set()).add(member["user_id"])
+        transfer_users = {}
+        for control_id, new_owner_id in transfers.items():
+            new_owner = await db.users.find_one({"user_id": new_owner_id}, {"_id": 0, "user_id": 1})
+            if new_owner_id == user_id or new_owner_id not in member_ids_by_control[control_id] or not new_owner:
+                await db.controls.update_many(
+                    {"control_id": {"$in": owned_ids}, "owner_id": user_id},
+                    {"$unset": {"deleting": ""}},
+                )
+                raise HTTPException(422, "O novo proprietário precisa ser outro membro ativo do controle")
+            transfer_users[control_id] = new_owner_id
+
+        for control_id, new_owner_id in transfer_users.items():
+            member_update = await db.members.update_one(
+                {"control_id": control_id, "user_id": new_owner_id},
+                {"$set": {"role": "owner"}},
+            )
+            control_update = await db.controls.update_one(
+                {"control_id": control_id, "owner_id": user_id, "deleting": True},
+                {"$set": {"owner_id": new_owner_id}, "$unset": {"deleting": ""}},
+            )
+            if not member_update.matched_count or not control_update.matched_count:
+                raise HTTPException(409, "Não foi possível transferir a propriedade; tente novamente")
+            transferred_ids.append(control_id)
+
+    delete_ids = [control_id for control_id in owned_ids if control_id not in transferred_ids]
+
+    # Preserve financial records in controls that survive, while removing this
+    # user's identity from transaction authorship and revoking their memberships.
+    retained_controls = {"$nin": delete_ids}
+    await db.transactions.update_many(
+        {"user_id": user_id, "control_id": retained_controls},
+        {"$unset": {"user_id": ""}, "$set": {"user_name": "Usuário removido"}},
+    )
+    await db.ai_insights.delete_many({"user_id": user_id, "control_id": retained_controls})
+    await db.members.delete_many({"user_id": user_id, "control_id": retained_controls})
+
+    if delete_ids:
+        await db.transactions.delete_many({"control_id": {"$in": delete_ids}})
+        await db.tags.delete_many({"control_id": {"$in": delete_ids}})
+        await db.ai_insights.delete_many({"control_id": {"$in": delete_ids}})
+        await db.members.delete_many({"control_id": {"$in": delete_ids}})
+        await db.controls.delete_many({"control_id": {"$in": delete_ids}, "owner_id": user_id})
+
+    await db.user_sessions.delete_many({"user_id": user_id})
+    await db.users.delete_one({"user_id": user_id})
+    response.delete_cookie("session_token", path="/")
+    return {"ok": True}
 
 @api.get("/controls")
 async def controls(request: Request):
@@ -553,7 +643,34 @@ async def ai_insights(cid: str, request: Request):
         "transaction_count": totals.get("transaction_count", 0),
         "expenses_by_tag": {name: formatted_amount(amount) for name, amount in by_tag.items()},
     }
-    prompt = json.dumps(summary, ensure_ascii=False)
+    prompt = json.dumps(summary, ensure_ascii=False, sort_keys=True)
+    summary_hash = hashlib.sha256(f"gemini-3.8-flash:v1:{prompt}".encode("utf-8")).hexdigest()
+    cached = await db.ai_insights.find_one(
+        {"control_id": cid, "summary_hash": summary_hash, "content": {"$type": "string", "$ne": ""}},
+        {"_id": 0, "content": 1},
+        sort=[("created_at", -1)],
+    )
+    if cached:
+        async def cached_stream():
+            yield f"data: {json.dumps({'text': cached['content']}, ensure_ascii=False)}\n\n"
+            yield "data: {\"done\":true}\n\n"
+        return StreamingResponse(cached_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    requested_at = datetime.now(timezone.utc)
+    cooldown_cutoff = requested_at - timedelta(minutes=10)
+    reservation = await db.users.update_one(
+        {
+            "user_id": user["user_id"],
+            "$or": [
+                {"ai_last_requested_at": {"$lt": cooldown_cutoff}},
+                {"ai_last_requested_at": {"$exists": False}},
+            ],
+        },
+        {"$set": {"ai_last_requested_at": requested_at}},
+    )
+    if not reservation.matched_count:
+        raise HTTPException(429, "Você já gerou um insight recentemente. Tente novamente em até 10 minutos.")
+
     async def stream():
         chunks = []
         try:
@@ -564,9 +681,18 @@ async def ai_insights(cid: str, request: Request):
                     yield f"data: {json.dumps({'text': event.content}, ensure_ascii=False)}\n\n"
                 elif isinstance(event, StreamDone):
                     break
-            await db.ai_insights.insert_one({"insight_id": uid("insight"), "control_id": cid, "user_id": user["user_id"], "summary": summary, "content": "".join(chunks), "created_at": now()})
+            content = "".join(chunks)
+            if content:
+                await db.ai_insights.insert_one({"insight_id": uid("insight"), "control_id": cid, "user_id": user["user_id"], "summary": summary, "summary_hash": summary_hash, "content": content, "created_at": now()})
             yield "data: {\"done\":true}\n\n"
         except Exception:
+            try:
+                await db.users.update_one(
+                    {"user_id": user["user_id"], "ai_last_requested_at": requested_at},
+                    {"$unset": {"ai_last_requested_at": ""}},
+                )
+            except Exception:
+                pass
             yield f"data: {json.dumps({'error': 'Não foi possível gerar os insights agora.'}, ensure_ascii=False)}\n\n"
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 

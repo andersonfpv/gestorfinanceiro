@@ -15,3 +15,10 @@
 .page-panel{max-width:900px}.inline-form{display:flex;gap:10px;align-items:center;margin:28px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:20px 0}.inline-form input[type=email],.inline-form input[type=text],.inline-form select{flex:1}.inline-form input[type=color]{width:44px;height:42px;padding:4px}.tag-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.tag-item{border:1px solid var(--line);padding:16px;border-radius:7px;display:flex;align-items:center;gap:9px}.tag-item i{width:10px;height:10px;border-radius:50%}.tag-item span{font-size:11px;color:var(--muted);margin-left:auto}.member-list{display:grid;gap:10px}.member-row{display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line);padding:12px 0}.member-row span{flex:1;font-size:13px}.member-row b{font-size:11px;color:var(--green)}
 .member-row .icon-btn{color:var(--orange);padding:7px}.danger-zone{display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid var(--line);margin-top:28px;padding-top:18px}.danger-zone .muted{max-width:620px}.danger-zone button{white-space:nowrap}
 @media(max-width:850px){.danger-zone{align-items:flex-start;flex-direction:column}}
+.profile-button{background:transparent;padding:0;text-align:left}
+.account-settings{max-width:820px}
+.account-note{background:#f7faf9;border:1px solid var(--line);border-radius:7px;color:#526766;font-size:13px;line-height:1.65;padding:16px;margin-bottom:22px}
+.account-note strong{color:var(--ink)}
+.account-confirm-form{max-width:440px}
+.danger-button{background:#b84335;color:white;border-radius:7px;padding:12px 16px;font-weight:700;justify-self:start}
+.danger-button:disabled{opacity:.6;cursor:wait}

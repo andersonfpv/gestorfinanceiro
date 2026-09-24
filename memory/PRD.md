@@ -38,10 +38,10 @@ Aplicativo web responsivo em português do Brasil para registrar, acompanhar e c
 - Lista de lançamentos paginada e pesquisável, exportação CSV com proteção contra fórmulas, remoção de membros pelo proprietário e exclusão de controles com confirmação e bloqueio quando ainda compartilhados.
 - Insights de IA passaram a usar agregações de todo o histórico, sem limite fixo de 2.000 lançamentos.
 - O cartão principal do dashboard foi renomeado para “Resultado líquido”; saldo bancário real exige cadastro de contas e transferências.
+- Limite de uma nova chamada de IA por usuário a cada 10 minutos, com reaproveitamento do insight quando os totais agregados permanecem iguais.
+- Encerramento de conta com confirmação por e-mail, revogação de sessões e acesso, exclusão dos dados de controles individuais, transferência de propriedade dos controles compartilhados e anonimização da autoria em registros preservados.
 
 ## Backlog priorizado
-- P0: documentar retenção, privacidade e exclusão de conta; hoje é possível exportar lançamentos e excluir controles, mas não há fluxo para encerrar a conta OAuth.
-- P0: adicionar limites de uso/cache nos insights de IA, para controlar custo e evitar chamadas repetidas por qualquer membro autorizado.
 - P1: criar contas financeiras, transferências e ciclo de cartão de crédito; até lá, não chamar resultado líquido de saldo bancário.
 - P1: orçamentos por categoria e metas financeiras com progresso mensal.
 - P1: lançamentos recorrentes e parcelados, com prévia antes de gerar ocorrências.
@@ -53,7 +53,7 @@ Aplicativo web responsivo em português do Brasil para registrar, acompanhar e c
 - P2: ampliar testes automatizados de autorização, isolamento, arredondamento, datas antigas, paginação e exclusões; hoje os testes de API dependem de um backend e MongoDB de teste em execução.
 
 ## Próximas tarefas
-1. Fechar a política de retenção e adicionar exclusão da conta e dados pessoais sem apagar controles compartilhados de outras pessoas.
-2. Criar o modelo de contas, transferências e cartões antes de apresentar “saldo bancário” ou fluxo de caixa por conta.
-3. Implementar orçamentos por categoria e recorrência/parcela com testes de geração e deduplicação.
-4. Adicionar importação CSV/OFX e comparação mensal.
+1. Criar o modelo de contas, transferências e cartões antes de apresentar “saldo bancário” ou fluxo de caixa por conta.
+2. Implementar orçamentos por categoria e recorrência/parcela com testes de geração e deduplicação.
+3. Adicionar importação CSV/OFX e comparação mensal.
+4. Avaliar exclusão automatizada/solicitações de dados no provedor OAuth e retenção técnica de backups conforme a política operacional de implantação.

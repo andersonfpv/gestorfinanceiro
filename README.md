@@ -60,3 +60,6 @@ MONGO_URL=mongodb://localhost:27017 DB_NAME=gestorfinanceiro_test REACT_APP_BACK
 - Use um banco exclusivo para desenvolvimento e testes.
 - O acesso de demonstração cria uma identidade isolada por sessão.
 - Valores são armazenados com duas casas decimais e datas novas são armazenadas no formato ISO `AAAA-MM-DD`.
+- Insights de IA reutilizam resultados quando os totais agregados não mudam e limitam novas chamadas ao modelo a uma por usuário a cada 10 minutos. O intervalo protege o custo do serviço; respostas em cache continuam disponíveis.
+- O encerramento de conta exige confirmar o e-mail. Controles individuais da pessoa e seus dados são apagados; cada controle próprio compartilhado precisa ser transferido para outro membro, preservando o histórico do grupo. Em controles de terceiros, o acesso é revogado e a autoria dos lançamentos é anonimizada, mantendo os registros financeiros para os demais membros.
+- O encerramento remove os dados locais e sessões deste aplicativo. A identidade de login Google é gerida pelo provedor de autenticação e não é excluída pelo aplicativo.

@@ -71,6 +71,7 @@ def test_ai_insights_streams_done_and_persists_aggregates(session_and_control):
         if line.startswith("data: "):
             events.append(json.loads(line[6:]))
     assert any(event.get("text") for event in events)
+    generated_text = "".join(event.get("text", "") for event in events)
     assert {event.get("done") for event in events} >= {True}
     assert not any("error" in event for event in events)
 
@@ -85,7 +86,30 @@ def test_ai_insights_streams_done_and_persists_aggregates(session_and_control):
             "transaction_count": 1,
             "expenses_by_tag": {},
         }
+        assert insight["summary_hash"]
         assert "TEST_PRIVATE_DESCRIPTION" not in insight["content"]
         assert "TEST_PRIVATE_NOTE" not in insight["content"]
+        assert insight["content"] == generated_text
     finally:
         mongo.close()
+
+    cached = session.post(
+        f"{BASE_URL}/api/controls/{control_id}/ai/insights", stream=True, timeout=20
+    )
+    assert cached.status_code == 200
+    cached_events = [json.loads(line[6:]) for line in cached.iter_lines(decode_unicode=True) if line.startswith("data: ")]
+    assert "".join(event.get("text", "") for event in cached_events) == generated_text
+    assert any(event.get("done") for event in cached_events)
+
+    tags = session.get(f"{BASE_URL}/api/controls/{control_id}/tags", timeout=20).json()
+    changed = session.post(
+        f"{BASE_URL}/api/controls/{control_id}/transactions",
+        json={"type": "expense", "amount": "25.00", "date": "2026-09-02",
+              "description": "TEST changed aggregate", "tag_id": tags[0]["tag_id"]}, timeout=20,
+    )
+    assert changed.status_code == 200
+    limited = session.post(
+        f"{BASE_URL}/api/controls/{control_id}/ai/insights", timeout=20
+    )
+    assert limited.status_code == 429
+    assert "10 minutos" in limited.json()["detail"]
