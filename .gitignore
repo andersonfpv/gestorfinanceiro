@@ -62,6 +62,7 @@ chainlit.md
 .vercel
 .emergent/
 frontend/src/constants/testIds/
+/.gitconfig
 
 # Data and databases
 agenthub/agents/youtube/db
