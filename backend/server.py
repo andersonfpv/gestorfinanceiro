@@ -1,17 +1,19 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Query, Request, Response
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson.decimal128 import Decimal128
+from google.auth.exceptions import GoogleAuthError
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2 import id_token
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Literal, Optional
 from urllib.parse import urlsplit
-import asyncio, csv, hashlib, io, json, os, re, uuid, requests
-from emergentintegrations.llm.chat import LlmChat, TextDelta, StreamDone, UserMessage
+import asyncio, csv, hashlib, hmac, io, json, os, re, secrets, uuid, requests
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -54,7 +56,6 @@ def clean(doc):
     doc.pop("_id", None)
     return doc
 
-class SessionRequest(BaseModel): session_id: str
 class AccountDeleteIn(BaseModel):
     email: EmailStr
     ownership_transfers: dict[str, str] = Field(default_factory=dict)
@@ -171,23 +172,101 @@ async def cleanup_demo_user(user_id):
 @api.get("/auth/me")
 async def me(request: Request): return await current_user(request)
 
-@api.post("/auth/session")
-async def auth_session(body: SessionRequest, response: Response):
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "http://localhost:8080").rstrip("/")
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
+GOOGLE_REDIRECT_URI = f"{APP_BASE_URL}/api/auth/google/callback"
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").strip().lower() in {"1", "true", "yes"}
+DEMO_LOGIN_ENABLED = os.environ.get("ENABLE_DEMO_LOGIN", "false").strip().lower() in {"1", "true", "yes"}
+
+@api.get("/health")
+async def health(): return {"ok": True}
+
+@api.get("/auth/config")
+async def auth_config():
+    return {"google_enabled": bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET), "demo_enabled": DEMO_LOGIN_ENABLED}
+
+@api.get("/auth/google/start")
+async def google_login_start(response: Response):
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(503, "Login Google ainda não foi configurado pelo administrador")
+    state, nonce = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+    cookie_options = {"httponly": True, "secure": COOKIE_SECURE, "samesite": "lax", "path": "/", "max_age": 600}
+    response.set_cookie("oauth_state", state, **cookie_options)
+    response.set_cookie("oauth_nonce", nonce, **cookie_options)
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "nonce": nonce,
+        "prompt": "select_account",
+    }
+    from urllib.parse import urlencode
+    response.headers["Location"] = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
+    response.status_code = 302
+    return response
+
+@api.get("/auth/google/callback")
+async def google_login_callback(request: Request):
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(503, "Login Google ainda não foi configurado pelo administrador")
+    frontend = RedirectResponse(f"{APP_BASE_URL}/?auth_error=google", status_code=303)
+    frontend.delete_cookie("oauth_state", path="/")
+    frontend.delete_cookie("oauth_nonce", path="/")
+    state_cookie = request.cookies.get("oauth_state", "")
+    nonce_cookie = request.cookies.get("oauth_nonce", "")
+    state = request.query_params.get("state", "")
+    code = request.query_params.get("code", "")
+    if request.query_params.get("error") or not code or not state_cookie or not nonce_cookie or not hmac.compare_digest(state_cookie, state):
+        return frontend
     try:
-        r = await asyncio.to_thread(requests.get, "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data", headers={"X-Session-ID": body.session_id}, timeout=15)
-    except requests.RequestException as exc:
-        raise HTTPException(502, "O serviço de autenticação está temporariamente indisponível") from exc
-    if r.status_code != 200: raise HTTPException(401, "Não foi possível validar o acesso")
-    data = r.json(); user = {"user_id": f"user_{data['id']}", "email": data["email"], "name": data.get("name") or data["email"], "picture": data.get("picture", ""), "created_at": now()}
-    await db.users.update_one({"email": user["email"]}, {"$set": user}, upsert=True)
-    existing = await db.users.find_one({"email": user["email"]}, {"_id": 0}); user = existing
-    token = data["session_token"]
-    await db.user_sessions.insert_one({"user_id": user["user_id"], "session_token": token, "expires_at": (datetime.now(timezone.utc)+timedelta(days=7)).isoformat(), "created_at": now()})
-    response.set_cookie("session_token", token, httponly=True, secure=True, samesite="none", path="/")
-    return user
+        token_response = await asyncio.to_thread(requests.post, "https://oauth2.googleapis.com/token", data={
+            "code": code,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri": GOOGLE_REDIRECT_URI,
+            "grant_type": "authorization_code",
+        }, timeout=15)
+        token_response.raise_for_status()
+        identity = token_response.json().get("id_token")
+        if not identity:
+            return frontend
+        claims = await asyncio.to_thread(id_token.verify_oauth2_token, identity, GoogleRequest(), GOOGLE_CLIENT_ID)
+        if not hmac.compare_digest(str(claims.get("nonce", "")), nonce_cookie):
+            return frontend
+        email = str(claims.get("email", "")).strip().casefold()
+        if not email or claims.get("email_verified") not in (True, "true") or not claims.get("sub"):
+            return frontend
+    except (requests.RequestException, GoogleAuthError, ValueError, KeyError):
+        return frontend
+
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    user = {
+        "user_id": existing.get("user_id") if existing else f"user_{claims['sub']}",
+        "email": email,
+        "name": claims.get("name") or email,
+        "picture": claims.get("picture", ""),
+    }
+    await db.users.update_one(
+        {"email": email},
+        {"$set": user, "$setOnInsert": {"created_at": now()}},
+        upsert=True,
+    )
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    session_token = secrets.token_urlsafe(48)
+    await db.user_sessions.insert_one({"user_id": user["user_id"], "session_token": session_token, "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(), "created_at": now()})
+    success = RedirectResponse(f"{APP_BASE_URL}/", status_code=303)
+    success.set_cookie("session_token", session_token, httponly=True, secure=COOKIE_SECURE, samesite="lax", path="/", max_age=7 * 24 * 60 * 60)
+    success.delete_cookie("oauth_state", path="/")
+    success.delete_cookie("oauth_nonce", path="/")
+    return success
 
 @api.post("/auth/demo")
 async def demo_auth(response: Response):
+    if not DEMO_LOGIN_ENABLED:
+        raise HTTPException(404, "Login de demonstração desativado")
     await db.user_sessions.delete_many({"user_id": "user_demo"})
     expired_sessions = await db.user_sessions.find(
         {"user_id": {"$regex": r"^user_demo_"}, "expires_at": {"$lt": now()}},
@@ -199,7 +278,7 @@ async def demo_auth(response: Response):
     user = {"user_id": f"user_demo_{demo_id}", "email": f"demo+{demo_id}@example.com", "name": "Conta demonstração", "is_demo": True, "created_at": now()}
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": user}, upsert=True)
     token = f"demo_{uuid.uuid4().hex}"; await db.user_sessions.insert_one({"user_id": user["user_id"], "session_token": token, "expires_at": (datetime.now(timezone.utc)+timedelta(days=1)).isoformat(), "created_at": now()})
-    response.set_cookie("session_token", token, httponly=True, secure=True, samesite="none", path="/"); return user
+    response.set_cookie("session_token", token, httponly=True, secure=COOKIE_SECURE, samesite="lax", path="/", max_age=24 * 60 * 60); return user
 
 @api.post("/auth/logout")
 async def logout(request: Request, response: Response):
@@ -663,7 +742,8 @@ async def ai_insights(cid: str, request: Request):
         "expenses_by_tag": {name: formatted_amount(amount) for name, amount in by_tag.items()},
     }
     prompt = json.dumps(summary, ensure_ascii=False, sort_keys=True)
-    summary_hash = hashlib.sha256(f"gemini-3.8-flash:v1:{prompt}".encode("utf-8")).hexdigest()
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
+    summary_hash = hashlib.sha256(f"{model}:v1:{prompt}".encode("utf-8")).hexdigest()
     cached = await db.ai_insights.find_one(
         {"control_id": cid, "summary_hash": summary_hash, "content": {"$type": "string", "$ne": ""}},
         {"_id": 0, "content": 1},
@@ -674,6 +754,10 @@ async def ai_insights(cid: str, request: Request):
             yield f"data: {json.dumps({'text': cached['content']}, ensure_ascii=False)}\n\n"
             yield "data: {\"done\":true}\n\n"
         return StreamingResponse(cached_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not gemini_api_key:
+        raise HTTPException(503, "Insights de IA não configurados. O administrador precisa definir GEMINI_API_KEY.")
 
     requested_at = datetime.now(timezone.utc)
     cooldown_cutoff = requested_at - timedelta(minutes=10)
@@ -691,18 +775,21 @@ async def ai_insights(cid: str, request: Request):
         raise HTTPException(429, "Você já gerou um insight recentemente. Tente novamente em até 10 minutos.")
 
     async def stream():
-        chunks = []
         try:
-            chat = LlmChat(api_key=os.environ["EMERGENT_LLM_KEY"], session_id=f"finance-insight-{cid}-{uuid.uuid4().hex}", system_message="Você é um orientador financeiro claro e responsável. Analise somente os totais agregados fornecidos. Não invente dados, não dê recomendações de investimento e responda em português do Brasil com três observações práticas e curtas.").with_model("gemini", "gemini-3.8-flash")
-            async for event in chat.stream_message(UserMessage(text=f"Gere insights sobre este resumo financeiro agregado, sem mencionar dados pessoais: {prompt}")):
-                if isinstance(event, TextDelta):
-                    chunks.append(event.content)
-                    yield f"data: {json.dumps({'text': event.content}, ensure_ascii=False)}\n\n"
-                elif isinstance(event, StreamDone):
-                    break
-            content = "".join(chunks)
+            result = await asyncio.to_thread(requests.post,
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                headers={"x-goog-api-key": gemini_api_key, "Content-Type": "application/json"},
+                json={
+                    "systemInstruction": {"parts": [{"text": "Você é um orientador financeiro claro e responsável. Analise somente os totais agregados fornecidos. Não invente dados, não dê recomendações de investimento e responda em português do Brasil com três observações práticas e curtas."}]},
+                    "contents": [{"role": "user", "parts": [{"text": f"Gere insights sobre este resumo financeiro agregado, sem mencionar dados pessoais: {prompt}"}]}],
+                    "generationConfig": {"temperature": 0.4},
+                }, timeout=45)
+            result.raise_for_status()
+            payload = result.json()
+            content = "".join(part.get("text", "") for part in payload["candidates"][0]["content"]["parts"] if part.get("text"))
             if content:
                 await db.ai_insights.insert_one({"insight_id": uid("insight"), "control_id": cid, "user_id": user["user_id"], "summary": summary, "summary_hash": summary_hash, "content": content, "created_at": now()})
+                yield f"data: {json.dumps({'text': content}, ensure_ascii=False)}\n\n"
             yield "data: {\"done\":true}\n\n"
         except Exception:
             try:

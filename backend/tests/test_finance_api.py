@@ -210,7 +210,11 @@ def test_cookie_logout_clears_session():
     session = requests.Session()
     login = session.post(f"{BASE_URL}/api/auth/demo", timeout=20)
     assert login.status_code == 200
-    assert "secure" in login.headers.get("set-cookie", "").lower()
+    cookie_header = login.headers.get("set-cookie", "").lower()
+    expected_secure = os.environ.get("COOKIE_SECURE", "true").lower() in {"1", "true", "yes"}
+    assert "httponly" in cookie_header
+    assert "samesite=lax" in cookie_header
+    assert ("secure" in cookie_header) is expected_secure
     token = session.cookies.get("session_token")
     session.cookies.clear()
     # Simulate the browser sending its Secure cookie over the local HTTP test URL.
@@ -220,11 +224,10 @@ def test_cookie_logout_clears_session():
     assert session.get(f"{BASE_URL}/api/auth/me", timeout=20).status_code == 401
 
 
-def test_oauth_invalid_session_returns_auth_error():
-    """Verify an invalid managed OAuth session fails cleanly rather than crashing."""
-    response = requests.post(f"{BASE_URL}/api/auth/session", json={"session_id": "TEST_invalid_oauth_session"}, timeout=30)
-    assert response.status_code == 401
-    assert response.json().get("detail")
+def test_auth_configuration_does_not_expose_credentials():
+    response = requests.get(f"{BASE_URL}/api/auth/config", timeout=20)
+    assert response.status_code == 200
+    assert set(response.json()) == {"google_enabled", "demo_enabled"}
 
 
 def test_control_and_membership_persist(client, control):
