@@ -265,15 +265,34 @@ async def delete_account(body: AccountDeleteIn, request: Request, response: Resp
             transfer_users[control_id] = new_owner_id
 
         for control_id, new_owner_id in transfer_users.items():
+            previous_role = next(
+                member["role"]
+                for member in other_members
+                if member["control_id"] == control_id and member["user_id"] == new_owner_id
+            )
             member_update = await db.members.update_one(
                 {"control_id": control_id, "user_id": new_owner_id},
                 {"$set": {"role": "owner"}},
             )
+            if not member_update.matched_count:
+                await db.controls.update_many(
+                    {"control_id": {"$in": owned_ids}, "owner_id": user_id},
+                    {"$unset": {"deleting": ""}},
+                )
+                raise HTTPException(409, "O membro escolhido não está mais no controle; atualize a página")
             control_update = await db.controls.update_one(
                 {"control_id": control_id, "owner_id": user_id, "deleting": True},
                 {"$set": {"owner_id": new_owner_id}, "$unset": {"deleting": ""}},
             )
-            if not member_update.matched_count or not control_update.matched_count:
+            if not control_update.matched_count:
+                await db.members.update_one(
+                    {"control_id": control_id, "user_id": new_owner_id},
+                    {"$set": {"role": previous_role}},
+                )
+                await db.controls.update_many(
+                    {"control_id": {"$in": owned_ids}, "owner_id": user_id},
+                    {"$unset": {"deleting": ""}},
+                )
                 raise HTTPException(409, "Não foi possível transferir a propriedade; tente novamente")
             transferred_ids.append(control_id)
 
